@@ -78,6 +78,8 @@ import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import kotlin.math.min
+import kotlin.math.abs
+import timber.log.Timber
 
 class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(),
     InputBroadcastReceiver {
@@ -105,6 +107,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     private var isClipboardFresh: Boolean = false
     private var isInlineSuggestionPresent: Boolean = false
     private var isCapabilityFlagsPassword: Boolean = false
+    private var isNumberRowCollapsed: Boolean = false
     private var isKeyboardLayoutNumber: Boolean = false
     private var isToolbarManuallyToggled: Boolean = false
 
@@ -167,7 +170,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         val newState = when {
             isClipboardFresh -> IdleUi.State.Clipboard
             isInlineSuggestionPresent -> IdleUi.State.InlineSuggestion
-            isCapabilityFlagsPassword && !isKeyboardLayoutNumber -> IdleUi.State.NumberRow
+            isCapabilityFlagsPassword && !isKeyboardLayoutNumber && !isNumberRowCollapsed -> IdleUi.State.NumberRow
             /**
              * state matrix:
              *                               expandToolbarByDefault
@@ -186,9 +189,45 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         service.requestHideSelf(0)
     }
 
-    private val swipeDownHideKeyboardCallback = CustomGestureView.OnGestureListener { _, e ->
+    private val swipeDownExpandCallback = CustomGestureView.OnGestureListener { _, e ->
         if (e.type == CustomGestureView.GestureType.Up && e.totalY > 0) {
             service.requestHideSelf(0)
+            true
+        } else false
+    }
+
+    // Combined gesture: determine primary direction by comparing totalX and totalY.
+    // - If horizontal is dominant and left, show number row (when allowed).
+    // - If vertical is dominant and down, hide keyboard.
+    private val swipeHideKeyboardCallback = CustomGestureView.OnGestureListener { _, e ->
+        if (e.type != CustomGestureView.GestureType.Up) return@OnGestureListener false
+
+        val absX = abs(e.totalX)
+        val absY = abs(e.totalY)
+
+        when {
+            // Horizontal && left (show number row)
+            absX > absY && e.totalX < 0 -> {
+                if (isCapabilityFlagsPassword && !isKeyboardLayoutNumber) {
+                    isNumberRowCollapsed = false
+                    evalIdleUiState(fromUser = true)
+                    true
+                } else false
+            }
+            // Vertical && down (hide keyboard)
+            absY > absX && e.totalY > 0 -> {
+                service.requestHideSelf(0)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private val swipeCollapseNumberRowCallback = CustomGestureView.OnGestureListener { _, e ->
+        if (e.type != CustomGestureView.GestureType.Up) return@OnGestureListener false
+        if (e.totalX > 0) { // swipe right
+            isNumberRowCollapsed = true
+            evalIdleUiState(fromUser = true)
             true
         } else false
     }
@@ -226,7 +265,8 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                 setOnClickListener(hideKeyboardCallback)
                 swipeEnabled = true
                 swipeThresholdY = dp(HEIGHT.toFloat())
-                onGestureListener = swipeDownHideKeyboardCallback
+                swipeThresholdX = swipeThresholdY
+                onGestureListener = swipeHideKeyboardCallback
             }
             buttonsUi.apply {
                 undoButton.setOnClickListener {
@@ -262,6 +302,13 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                     true
                 }
             }
+            // allow swiping the number row to collapse it
+            numberRow.apply {
+                swipeEnabled = true
+                swipeThresholdX = dp(HEIGHT.toFloat())
+                swipeThresholdY = dp(HEIGHT.toFloat())
+                onGestureListener = swipeCollapseNumberRowCallback
+            }
         }
     }
 
@@ -270,7 +317,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             expandButton.apply {
                 swipeEnabled = true
                 swipeThresholdY = dp(HEIGHT.toFloat())
-                onGestureListener = swipeDownHideKeyboardCallback
+                onGestureListener = swipeDownExpandCallback
             }
         }
     }
@@ -368,6 +415,7 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
             idleUi.privateMode(info.imeOptions.hasFlag(EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING))
         }
         isCapabilityFlagsPassword = toolbarNumRowOnPassword && capFlags.has(CapabilityFlag.Password)
+        isNumberRowCollapsed = false
         isInlineSuggestionPresent = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             idleUi.inlineSuggestionsBar.clear()
