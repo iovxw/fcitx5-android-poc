@@ -22,61 +22,65 @@ import kotlin.math.abs
 import timber.log.Timber
 
 @SuppressLint("ViewConstructor")
-class NumberRow(ctx: Context, theme: Theme) : CustomGestureView(ctx) {
-    private val keyboard = object : BaseKeyboard(ctx, theme, Layout) {}
+class NumberRow(ctx: Context, theme: Theme) : BaseKeyboard(ctx, theme, Layout) {
 
     private var gestureStartEvent: MotionEvent? = null
+    private var collapseGestureTriggerd: Boolean = false
 
-    var keyActionListener: KeyActionListener?
-        get() = keyboard.keyActionListener
-        set(value) {
-            keyboard.keyActionListener = value
+    var onCollapseListener: (() -> Unit)? = null
+
+    // return true if the swipe distance is enough to trigger collapse
+    var shouldCollapse: (start: PointF, current: PointF) -> Boolean = { _, _ -> false }
+
+    private fun checkGesture(ev: MotionEvent): Boolean {
+        Timber.d("$ev")
+        val startEvent = gestureStartEvent ?: return false
+        val firstPointerId = startEvent.getPointerId(startEvent.actionIndex)
+        if (ev.getPointerId(ev.actionIndex) == firstPointerId) {
+            val start = PointF(startEvent.x, startEvent.y)
+            val current = PointF(ev.getX(ev.actionIndex), ev.getY(ev.actionIndex))
+            if (shouldCollapse(start, current)) {
+                Timber.d("NumberRow: intercepted gesture from child keyboard to handle swipe")
+                resetState()
+                collapseGestureTriggerd = true
+                return true
+            }
         }
+        return false
+    }
 
-    var popupActionListener: PopupActionListener?
-        get() = keyboard.popupActionListener
-        set(value) {
-            keyboard.popupActionListener = value
-        }
-
-    init {
-        addView(keyboard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    private fun resetState() {
+        gestureStartEvent?.recycle()
+        gestureStartEvent = null
+        collapseGestureTriggerd = false
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (!swipeEnabled) return false
-        // Intercept touch events from the child keyboard when a gesture exceeds
-        // the configured swipe thresholds.
         when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                gestureStartEvent = MotionEvent.obtain(ev)
-            }
-
+            MotionEvent.ACTION_DOWN -> gestureStartEvent = MotionEvent.obtain(ev)
             MotionEvent.ACTION_MOVE -> {
-                gestureStartEvent?.let { startEvent ->
-                    val firstPointerId = startEvent.getPointerId(startEvent.actionIndex)
-                    if (ev.getPointerId(ev.actionIndex) == firstPointerId) {
-                        val dx = abs(ev.getX(ev.actionIndex) - startEvent.x)
-                        val dy = abs(ev.getY(ev.actionIndex) - startEvent.y)
-                        if (dx > swipeThresholdX || dy > swipeThresholdY) {
-                            Timber.d("NumberRow: intercepted gesture from child keyboard to handle swipe")
-                            // Initialize parent gesture state using the recorded DOWN
-                            super.onTouchEvent(startEvent)
-                            startEvent.recycle()
-                            gestureStartEvent = null
-                            return true
-                        }
-                    }
+                if (checkGesture(ev)) return true
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> resetState()
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        var handled = false
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> gestureStartEvent = MotionEvent.obtain(ev)
+            MotionEvent.ACTION_MOVE -> checkGesture(ev)
+            MotionEvent.ACTION_UP -> {
+                if (collapseGestureTriggerd) {
+                    resetState()
+                    onCollapseListener?.invoke()
+                    handled = true
                 }
             }
-
-            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                gestureStartEvent?.recycle()
-                gestureStartEvent = null
-            }
+            MotionEvent.ACTION_CANCEL -> resetState()
         }
-
-        return false
+        return super.onTouchEvent(ev) || handled
     }
 
     companion object {

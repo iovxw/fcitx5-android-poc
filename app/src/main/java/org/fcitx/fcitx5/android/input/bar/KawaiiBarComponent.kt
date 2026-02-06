@@ -223,15 +223,6 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
         }
     }
 
-    private val swipeCollapseNumberRowCallback = CustomGestureView.OnGestureListener { _, e ->
-        if (e.type != CustomGestureView.GestureType.Up) return@OnGestureListener false
-        if (e.totalX > 0) { // swipe right
-            isNumberRowCollapsed = true
-            evalIdleUiState(fromUser = true)
-            true
-        } else false
-    }
-
     private var voiceInputSubtype: Pair<String, InputMethodSubtype>? = null
 
     private val switchToVoiceInputCallback = View.OnClickListener {
@@ -302,12 +293,14 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
                     true
                 }
             }
-            // allow swiping the number row to collapse it
             numberRow.apply {
-                swipeEnabled = true
-                swipeThresholdX = dp(HEIGHT.toFloat())
-                swipeThresholdY = dp(HEIGHT.toFloat())
-                onGestureListener = swipeCollapseNumberRowCallback
+                shouldCollapse = { start, current ->
+                    current.x > start.x && abs(current.x - start.x) > dp(HEIGHT.toFloat())
+                }
+                onCollapseListener = {
+                    isNumberRowCollapsed = true
+                    evalIdleUiState(fromUser = true)
+                }
             }
         }
     }
