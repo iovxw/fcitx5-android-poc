@@ -77,9 +77,12 @@ import splitties.views.dsl.core.matchParent
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import kotlin.math.min
 import kotlin.math.abs
-import timber.log.Timber
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.PI
+import kotlin.math.sin
 
 class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(),
     InputBroadcastReceiver {
@@ -199,28 +202,52 @@ class KawaiiBarComponent : UniqueViewComponent<KawaiiBarComponent, FrameLayout>(
     // Combined gesture: determine primary direction by comparing totalX and totalY.
     // - If horizontal is dominant and left, show number row (when allowed).
     // - If vertical is dominant and down, hide keyboard.
-    private val swipeHideKeyboardCallback = CustomGestureView.OnGestureListener { _, e ->
-        if (e.type != CustomGestureView.GestureType.Up) return@OnGestureListener false
+    private val swipeHideKeyboardCallback = CustomGestureView.OnGestureListener { v, e ->
+        val numberRowAvailable = isCapabilityFlagsPassword && !isKeyboardLayoutNumber
+        if (numberRowAvailable) {
+            // We can't access the rawX and rawY of the MotionEvent, so we need to do some math.
+            // `e.x` and `e.y` are relative to the view's top-left corner, we want to rotate
+            // around the center of the view, so we translate them to be relative to the center
+            val relX = e.x - v.width / 2f
+            val relY = e.y - v.height / 2f
 
-        val absX = abs(e.totalX)
-        val absY = abs(e.totalY)
+            // rotate the relative coordinates by current rotation to get absolute coordinates
+            // the button is ↓, so apply -90 degrees offset
+            val theta = Math.toRadians(v.rotation.toDouble()) - PI / 2
+            val c = cos(theta)
+            val s = sin(theta)
+            val screenX = c * relX - s * relY
+            val screenY = s * relX + c * relY
+            var angle = Math.toDegrees(atan2(screenY, screenX)).toFloat()
+            when (e.type) {
+                CustomGestureView.GestureType.Move -> {
+                    if (angle < -10f) angle = -10f
+                    if (angle > 100f) angle = 100f
 
-        when {
-            // Horizontal && left (show number row)
-            absX > absY && e.totalX < 0 -> {
-                if (isCapabilityFlagsPassword && !isKeyboardLayoutNumber) {
-                    isNumberRowCollapsed = false
-                    evalIdleUiState(fromUser = true)
-                    true
-                } else false
+                    if (angle < 45f && angle > 10f) angle = 10f
+                    if (angle >= 45f && angle < 80f) angle = 80f
+
+                    v.rotation = angle
+                }
+                CustomGestureView.GestureType.Up -> {
+                    if (angle < 45f) {
+                        service.requestHideSelf(0)
+                    } else {
+                        v.rotation = 90f
+                        isNumberRowCollapsed = false
+                        evalIdleUiState(fromUser = true)
+                    }
+                    v.rotation = 0f
+                    return@OnGestureListener true
+                }
+                else -> {}
             }
-            // Vertical && down (hide keyboard)
-            absY > absX && e.totalY > 0 -> {
-                service.requestHideSelf(0)
-                true
-            }
-            else -> false
         }
+
+        if (e.type == CustomGestureView.GestureType.Up && abs(e.totalY) > abs(e.totalX) && e.totalY > 0) {
+            service.requestHideSelf(0)
+            true
+        } else false
     }
 
     private var voiceInputSubtype: Pair<String, InputMethodSubtype>? = null
