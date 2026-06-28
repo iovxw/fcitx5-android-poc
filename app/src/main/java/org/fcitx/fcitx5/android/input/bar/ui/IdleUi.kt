@@ -144,9 +144,10 @@ class IdleUi(
     }
 
     private fun updateMenuButtonIcon() {
-        menuButton.image.imageResource =
+        menuButton.setIcon(
             if (inPrivate) R.drawable.ic_view_private
             else R.drawable.ic_baseline_expand_more_24
+        )
     }
 
     private fun updateMenuButtonContentDescription() {

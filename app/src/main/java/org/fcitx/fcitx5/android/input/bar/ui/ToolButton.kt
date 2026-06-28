@@ -29,7 +29,7 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         val disableAnimation by AppPrefs.getInstance().advanced.disableAnimation
     }
 
-    val image = imageView {
+    private val image = imageView {
         isClickable = false
         isFocusable = false
         padding = dp(10)
