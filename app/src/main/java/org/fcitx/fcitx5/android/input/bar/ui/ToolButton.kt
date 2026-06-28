@@ -6,6 +6,7 @@ package org.fcitx.fcitx5.android.input.bar.ui
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.view.ViewPropertyAnimator
 import android.widget.ImageView
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
@@ -36,12 +37,20 @@ class ToolButton(context: Context) : CustomGestureView(context) {
         scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
 
+    var iconRotation: Float
+        get() = image.rotation
+        set(value) {
+            image.rotation = value
+        }
+
     constructor(context: Context, @DrawableRes icon: Int, theme: Theme) : this(context) {
         image.imageTintList = ColorStateList.valueOf(theme.altKeyTextColor)
         setIcon(icon)
         setPressHighlightColor(theme.keyPressHighlightColor)
         add(image, lParams(wrapContent, wrapContent, gravityCenter))
     }
+
+    fun iconAnimate(): ViewPropertyAnimator = image.animate()
 
     fun setIcon(@DrawableRes icon: Int) {
         image.imageResource = icon
